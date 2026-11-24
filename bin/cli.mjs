@@ -453,7 +453,18 @@ function cmdDoctor(flags) {
 }
 
 async function cmdCatalog(flags) {
-  const { catalog, fromCache, stale, error } = await fetchCatalog({ root: ROOT, force: Boolean(flags.refresh) });
+  let fetched;
+  if (flags.offline) {
+    const cached = readCache(ROOT);
+    if (!cached) {
+      console.error("本地没有目录缓存，去掉 --offline 联网拉一次。");
+      process.exit(1);
+    }
+    fetched = { catalog: cached, fromCache: true };
+  } else {
+    fetched = await fetchCatalog({ root: ROOT, force: Boolean(flags.refresh) });
+  }
+  const { catalog, fromCache, stale, error } = fetched;
   const idx = indexByName(catalog);
   const when = catalog.fetchedAt ? new Date(catalog.fetchedAt).toLocaleString("zh-CN", { hour12: false }) : "未知";
   const title = typeof catalog.title === "object" ? (catalog.title?.zh ?? catalog.title?.en ?? "DSH 插件目录") : (catalog.title ?? "DSH 插件目录");
@@ -664,7 +675,7 @@ function help() {
   dsh-restock install <id...> [--pack <id>]      安装（--dry-run 只预览，--port 指定端口）
   dsh-restock export [--out my-dsh.json]         导出当前 profile 的插件清单
   dsh-restock sync <file.json> [--dry-run]       按清单补齐缺失插件
-  dsh-restock catalog [--refresh] [--search 词]  生态目录（6k+ 条）＋ 你的版本差距
+  dsh-restock catalog [--refresh] [--offline] [--search 词]  生态目录（6k+ 条）＋ 你的版本差距
   dsh-restock recommend [--offline] [--limit N]  按你的 profile 推荐该补什么（能力缺口 + 冲突过滤）
   dsh-restock doctor                             体检：冲突、未知插件、可更新版本
 

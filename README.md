@@ -40,32 +40,51 @@ DSH Restock 干四件事：
 
 ## 快速开始
 
+还没发 npm，直接 clone 下来跑（零依赖，不需要 `npm install`）：
+
 ```bash
+git clone https://github.com/suhao1314/dsh-restock.git
+cd dsh-restock
+
 # 0. 让它先给你建议（能力缺口 + 冲突过滤 + 质量筛）
-npx dsh-restock recommend
+node bin/cli.mjs recommend
 
 # 1. 看货架（读本地 catalog，不联网）
-npx dsh-restock list
+node bin/cli.mjs list
 
 # 2. 看某个套餐里有什么
-npx dsh-restock list --pack newbie
+node bin/cli.mjs list --pack newbie
 
 # 3. 装上，一次装多个
-npx dsh-restock install dsh-image-gen dsh-better-sidebar
+node bin/cli.mjs install dsh-image-gen dsh-better-sidebar
 
 # 4. 只预览，不真装
-npx dsh-restock install --pack creator --dry-run
+node bin/cli.mjs install --pack creator --dry-run
 
 # 5. 把现在这套导出，换机时 sync 回来
-npx dsh-restock export > my-dsh.json
-npx dsh-restock sync my-dsh.json
+node bin/cli.mjs export > my-dsh.json
+node bin/cli.mjs sync my-dsh.json
 
 # 6. 体检：谁跟谁打架、有没有装到会拖垮 DSH 的插件
-npx dsh-restock doctor
+node bin/cli.mjs doctor
 ```
 
-需要 DSH 正在运行（工具会自己找到它的本地 RPC 端口，也可 `--port 7551` 指定）。
+需要 Node 20+、DSH 正在运行（工具会自己找到它的本地 RPC 端口，也可 `--port 7551` 指定）。
 装插件走的是 DSH 内置的 `pluginManager/installBundle`，和设置页里点「安装」是同一条路。
+
+## 在另一台电脑上试（3 分钟）
+
+1. 那台机器上先装好 DSH 并**启动一次**（哪怕什么都没配，也要有 profile 目录）。
+2. `git clone https://github.com/suhao1314/dsh-restock.git && cd dsh-restock`
+3. `node bin/cli.mjs recommend` —— 没缓存会自动从上游拉一次生态目录（6,700+ 条，约 5MB）。
+4. 想连远程/容器里的 DSH，用环境变量指路：
+   - `DSH_HOME`：DSH 家目录，默认 `~/.dsh`
+   - `DSH_PROFILE_DIR`：直接指定 profile 目录（默认 `$DSH_HOME/profiles/desktop`）
+   - `HTTPS_PROXY` + `NODE_USE_ENV_PROXY=1`：需要走代理才能连 GitHub/CDN 时用
+5. 离线看货架：`node bin/cli.mjs catalog --search 生图`（`--refresh` 强制更新；`--offline` 只用缓存）。
+
+**只读的**：`list`、`catalog`、`recommend`、`doctor`、`export` 都只读本地 profile 和缓存，不改任何东西；
+只有 `install` / `sync` 会通过 DSH 的 RPC 真装插件（加 `--dry-run` 只看计划）。
 
 ## 目录格式（`catalog/plugins.json`）
 
