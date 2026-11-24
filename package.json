@@ -1,0 +1,25 @@
+{
+  "name": "dsh-restock",
+  "version": "0.1.0",
+  "description": "Catalogue + one-shot installer for DeepSeek Harness (DSH) plugins: see what each plugin does, pick the ones you want, install in one go.",
+  "type": "module",
+  "bin": {
+    "dsh-restock": "bin/cli.mjs"
+  },
+  "files": [
+    "bin",
+    "catalog",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "plugins",
+    "catalog",
+    "installer"
+  ],
+  "license": "MIT"
+}
