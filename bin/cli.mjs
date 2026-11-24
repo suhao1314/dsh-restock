@@ -13,6 +13,7 @@ import {
   indexByName,
   versionFromRange,
   compareVersions,
+  engineAllows,
 } from "../lib/catalog.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -157,6 +158,33 @@ function installedVersions(profile) {
 
 function isBuiltin(id) {
   return /^@deepseek-ai\/dsh(-experimental)?-/.test(id) || id === "@deepseek-ai/dsh-base" || id === "@deepseek-ai/dsh-web-app";
+}
+
+/** Package-name fingerprint used to spot the same plugin published under a couple of names. */
+function normName(name) {
+  return String(name)
+    .replace(/^@[^/]+\//, "")
+    .replace(/^dsh[-_]/, "")
+    .replace(/[-_]plugin$/, "")
+    .replace(/[-_]/g, "")
+    .toLowerCase();
+}
+
+/** Installed desktop version, used to drop catalogue entries that cannot run here. */
+function hostDshVersion() {
+  if (process.env.DSH_VERSION) return process.env.DSH_VERSION.trim();
+  if (process.platform !== "win32") return null;
+  try {
+    const out = execFileSync(
+      "reg",
+      ["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\1bf39983-50d0-5fe0-9ef4-cece76f67c5e", "/v", "DisplayVersion"],
+      { encoding: "utf8", windowsHide: true, timeout: 8000 },
+    );
+    const m = out.match(/DisplayVersion\s+REG_SZ\s+(\S+)/);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
 }
 
 function specFor(entry) {
@@ -473,6 +501,138 @@ async function cmdCatalog(flags) {
   if (behind.length) console.log("\n（restock 只负责报告差距；升级走 DSH 插件页或 dsh-restock install <插件名>，装完重启 DSH 生效。）");
 }
 
+const CATEGORY_ZH = {
+  ui: "界面增强",
+  power: "能力增强",
+  media: "生图 / 媒体",
+  fun: "趣味 / 桌面挂件",
+  agent: "Agent / 自动化",
+  qq: "QQ 机器人",
+  dev: "开发调试",
+  tools: "工具",
+  skill: "技能包",
+  market: "插件市场",
+  vision: "视觉识别",
+  model: "模型通道",
+  memory: "记忆",
+  session: "会话管理",
+  workflow: "工作流",
+  usage: "用量统计",
+  theme: "主题外观",
+  notify: "消息通知",
+  remote: "远程访问",
+  context: "上下文",
+};
+
+function cmdRecommend(flags) {
+  const curated = loadCatalog();
+  const profile = readProfile();
+  const installed = installedSet(profile);
+  const isInstalled = (e) => installed.has(e.id) || installed.has(e.npm);
+  const zh = (c) => CATEGORY_ZH[c] || c;
+
+  const covered = new Map();
+  for (const e of curated.plugins) if (isInstalled(e)) covered.set(e.category, (covered.get(e.category) || 0) + 1);
+  const allCats = [...new Set(curated.plugins.map((e) => e.category))];
+  const missingCats = allCats.filter((c) => !covered.has(c));
+
+  const conflictWith = (e) => {
+    const hits = new Set((e.conflicts || []).filter((c) => installed.has(c)));
+    for (const o of curated.plugins) if (isInstalled(o) && (o.conflicts || []).includes(e.id)) hits.add(o.id);
+    return [...hits];
+  };
+
+  const thirdParty = [...installed].filter((x) => !isBuiltin(x)).length;
+  console.log(`\n体检对象：${PROFILE}`);
+  console.log(`已装 ${installed.size} 个 bundle，其中第三方 ${thirdParty} 个、官方内置 ${installed.size - thirdParty} 个\n`);
+
+  console.log("你现在覆盖的能力：");
+  for (const [c, n] of [...covered].sort((a, b) => b[1] - a[1])) console.log(`  · ${zh(c)}（${c}）×${n}`);
+  console.log(missingCats.length ? `\n完全没覆盖：${missingCats.map(zh).join("、")}` : "\n精选目录里的每类能力你都有覆盖。");
+
+  const cands = curated.plugins
+    .filter((e) => !isInstalled(e))
+    .map((e) => ({ e, cf: conflictWith(e) }))
+    .filter((x) => x.cf.length === 0 && !x.e.avoid);
+  const blocked = curated.plugins
+    .filter((e) => !isInstalled(e))
+    .map((e) => ({ e, cf: conflictWith(e) }))
+    .filter((x) => x.cf.length > 0 && !x.e.avoid);
+  const avoided = curated.plugins.filter((e) => e.avoid && !isInstalled(e));
+
+  const rank = (e) => (missingCats.includes(e.category) ? 100 : 0) + (e.hot ? 10 : 0);
+  cands.sort((a, b) => rank(b.e) - rank(a.e) || String(a.e.id).localeCompare(String(b.e.id)));
+
+  const limit = Number(flags.limit || 8);
+  console.log(`\n建议补的（从精选目录按「能力缺口 + 热门」排序，取前 ${Math.min(limit, cands.length)} 条）：`);
+  for (const { e } of cands.slice(0, limit)) {
+    const why = missingCats.includes(e.category)
+      ? `补上「${zh(e.category)}」这块空白`
+      : `${zh(e.category)}里更常用的一件，你已经装了同类`;
+    console.log(`\n  + ${e.id}　${e.title}`);
+    console.log(`     ${e.what}`);
+    console.log(`     为什么推荐：${why}`);
+    console.log(`     适合：${e.goodFor}`);
+    console.log(`     成本：${e.cost}${e.requires?.length ? `　需要：${e.requires.join("、")}` : ""}`);
+  }
+
+  if (blocked.length) {
+    console.log(`\n被冲突拦下的 ${blocked.length} 个（装了会跟现有插件抢工具名或服务名）：`);
+    for (const { e, cf } of blocked) console.log(`  × ${e.id}　← 冲突：${cf.join("、")}`);
+  }
+
+  if (avoided.length) {
+    console.log(`\n踩过坑、默认不推荐的 ${avoided.length} 个：`);
+    for (const e of avoided) console.log(`  ✗ ${e.id}　${e.title}　原因：${e.notes || "已知会破坏内置能力"}`);
+  }
+
+  // 精选目录不够用时，从上游全量目录自动筛：说明写得清、仓库不重复、版本能跑。
+  if (cands.length < limit) {
+    const cache = readCache(ROOT);
+    const upstream = cache?.plugins;
+    if (Array.isArray(upstream)) {
+      const ver = hostDshVersion();
+      const normInstalled = new Set([...installed].map(normName));
+      const seenRepos = new Set();
+      const skip = { installed: 0, vague: 0, dupRepo: 0, engine: 0 };
+      const picks = [];
+      for (const p of upstream) {
+        const name = String(p.name ?? "");
+        if (!name) continue;
+        if (installed.has(name) || normInstalled.has(normName(name))) { skip.installed++; continue; }
+        const desc = String(p.description?.zh ?? "").trim();
+        if (desc.length < 25) { skip.vague++; continue; }
+        const repoRaw = p.repository;
+        const repo = String(typeof repoRaw === "string" ? repoRaw : (repoRaw?.url ?? "")).toLowerCase().replace(/\/+$/, "");
+        if (repo && seenRepos.has(repo)) { skip.dupRepo++; continue; }
+        const versions = [...(p.versions ?? [])].sort((a, b) => (b.publishTimestamp ?? 0) - (a.publishTimestamp ?? 0));
+        const latest = versions[0];
+        if (!latest) continue;
+        if (ver && latest.engines?.dsh && !engineAllows(latest.engines.dsh, ver)) { skip.engine++; continue; }
+        if (repo) seenRepos.add(repo);
+        const rawAt = latest.publishTimestamp ?? 0;
+        const at = rawAt > 0 && rawAt < 1e12 ? rawAt * 1000 : rawAt;
+        picks.push({ name, desc, version: latest.version, at, category: p.metadata?.category });
+      }
+      picks.sort((a, b) => (missingCats.includes(b.category) ? 1 : 0) - (missingCats.includes(a.category) ? 1 : 0) || (b.at ?? 0) - (a.at ?? 0));
+      const extra = picks.slice(0, Math.max(0, limit - cands.length));
+      if (extra.length) {
+        console.log(`\n精选目录之外，从上游 ${upstream.length} 条里自动筛出来的（说明完整、同仓库只留一个、版本能跑）：`);
+        console.log(`  过滤掉：已装/同名 ${skip.installed} 条　说明太短 ${skip.vague} 条　同仓库重复 ${skip.dupRepo} 条　版本不兼容 ${skip.engine} 条${ver ? "" : "（DSH 版本未读到，兼容性未校验）"}`);
+        for (const x of extra) {
+          const when = x.at ? new Date(x.at).toISOString().slice(0, 10) : "未知";
+          const cat = CATEGORY_ZH[x.category] ?? x.category ?? "未分类";
+          console.log(`\n  · ${x.name}${x.version ? ` ${x.version}` : ""}　[${cat}]　更新于 ${when}`);
+          console.log(`     ${x.desc.length > 110 ? `${x.desc.slice(0, 110)}…` : x.desc}`);
+        }
+        console.log("\n  （这一档没有人工写「适合谁 / 成本」，装之前自己掂量；精选目录那 19 条是核过的。）");
+      }
+    }
+  }
+
+  console.log("\n（两层：上一层是人工核过的精选 19 条，带「适合谁 / 成本」；下一层是从上游全量目录自动筛的，只有机器判断。要装：dsh-restock install <id>）");
+}
+
 async function cmdProbe(flags) {
   const cands = candidatePorts();
   console.log(`DSH 进程端口候选：${cands.length ? cands.join(", ") : "（没找到，DSH 没在跑？）"}`);
@@ -493,6 +653,7 @@ function help() {
   dsh-restock export [--out my-dsh.json]         导出当前 profile 的插件清单
   dsh-restock sync <file.json> [--dry-run]       按清单补齐缺失插件
   dsh-restock catalog [--refresh] [--search 词]  生态目录（6k+ 条）＋ 你的版本差距
+  dsh-restock recommend                          按你的 profile 推荐该补什么（能力缺口 + 冲突过滤）
   dsh-restock doctor                             体检：冲突、未知插件、可更新版本
 
 示例：
@@ -516,6 +677,7 @@ try {
     case "install": await cmdInstall(flags); break;
     case "export": cmdExport(flags); break;
     case "sync": await cmdSync(flags); break;
+    case "recommend": cmdRecommend(flags); break;
     case "doctor": cmdDoctor(flags); break;
     case "catalog": await cmdCatalog(flags); break;
     case "probe": await cmdProbe(flags); break;

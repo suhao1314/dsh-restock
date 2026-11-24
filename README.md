@@ -11,9 +11,10 @@
 2. **不知道装什么。** 抖音、B站、QQ 群里天天有人推新插件，一个个手动 `pnpm`、改 `cordis.patch.yml`，还容易装崩。
 3. **装完才发现打架。** 两个插件抢同一个工具名、抢同一个服务名，DSH 直接起不来，报错还看不懂。
 
-DSH Restock 干三件事：
+DSH Restock 干四件事：
 
 - **清单化**：一个 JSON 目录，写清每个插件/技能「干什么、适合谁、免费还是烧钱、跟谁冲突」。
+- **按你的情况推荐**：`dsh-restock recommend` 先看你已经有什么能力、缺哪块，再从目录里挑不冲突的；精选层带人工写的「适合谁 / 成本」，不够时从上游 6700+ 条里自动筛（去掉说明太短的、同仓库重复的、版本跑不起来的）。
 - **勾选装机**：`dsh-restock install dsh-image-gen dsh-pet`，走 DSH 自己的插件管理器装，不用手改配置。
 - **一键复刻**：`dsh-restock export` 导出你现在这套，`dsh-restock sync my-dsh.json` 在新机器上还原。
 
@@ -40,6 +41,9 @@ DSH Restock 干三件事：
 ## 快速开始
 
 ```bash
+# 0. 让它先给你建议（能力缺口 + 冲突过滤 + 质量筛）
+npx dsh-restock recommend
+
 # 1. 看货架（读本地 catalog，不联网）
 npx dsh-restock list
 
@@ -152,6 +156,7 @@ npx dsh-restock catalog --search 生图    # 按名字/中英文描述搜索
 
 - [x] 目录 + 套餐 + `list` / `install` / `export` / `sync` / `doctor`
 - [x] 接入上游生态目录（`catalog`，6700+ 条、版本差距对比）
+- [x] `recommend`：按 profile 的能力缺口推荐，精选层 + 上游自动筛层
 - [ ] 技能（skills）与 MCP 连接的清单化安装
 - [ ] `export` 生成带版本的 lockfile（现在只记包名）
 - [ ] 网页版勾选界面（生成一条命令给你复制）

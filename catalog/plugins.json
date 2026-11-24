@@ -274,9 +274,10 @@
       "repo": null,
       "title": "插件管家（⚠️ 会抢服务名）",
       "what": "社区做的插件管理界面。",
-      "goodFor": "——",
+      "goodFor": "想在界面里批量开关插件、又愿意接受内置插件管理器被顶掉的代价的人。",
       "cost": "免费",
       "requires": [],
+      "avoid": true,
       "conflicts": ["@deepseek-ai/dsh-plugin-manager"],
       "hot": false,
       "notes": "⚠️ 它注册的服务名和 DSH 内置插件管理器相同，装上后内置 plugin_manager 工具会报 manager.installBundle is not a function，HTTP 接口 404。想用内置安装能力就别装它。"
