@@ -7,6 +7,13 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import {
+  fetchCatalog,
+  readCache,
+  indexByName,
+  versionFromRange,
+  compareVersions,
+} from "../lib/catalog.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const HOME = process.env.DSH_HOME || join(homedir(), ".dsh");
@@ -136,6 +143,20 @@ async function listBundles(port) {
 
 function installedSet(profile) {
   return new Set(profile.bundles || []);
+}
+
+/** Installed versions come from the profile's dependency ranges — that's all a profile records. */
+function installedVersions(profile) {
+  const map = new Map();
+  for (const [name, range] of Object.entries(profile.dependencies ?? {})) {
+    const v = versionFromRange(range);
+    if (v) map.set(name, v);
+  }
+  return map;
+}
+
+function isBuiltin(id) {
+  return /^@deepseek-ai\/dsh(-experimental)?-/.test(id) || id === "@deepseek-ai/dsh-base" || id === "@deepseek-ai/dsh-web-app";
 }
 
 function specFor(entry) {
@@ -375,14 +396,81 @@ function cmdDoctor(flags) {
     }
   }
   const unknown = profile.bundles.filter((id) => !map.has(id));
-  const builtin = unknown.filter((id) => /^@deepseek-ai\/dsh(-experimental)?-/.test(id) || id === "@deepseek-ai/dsh-base" || id === "@deepseek-ai/dsh-web-app");
+  const builtin = unknown.filter((id) => isBuiltin(id));
   const external = unknown.filter((id) => !builtin.includes(id));
   if (builtin.length) console.log(`\n官方内置 bundle（随 DSH 一起发，不收录进目录）：\n${builtin.map((u) => `  · ${u}`).join("\n")}`);
   if (external.length) {
     issues += external.length;
     console.log(`\n目录里没有记录的第三方插件（没法判断冲突）：\n${external.map((u) => `  ? ${u}`).join("\n")}`);
   }
+  const cached = readCache(ROOT);
+  if (cached) {
+    const idx = indexByName(cached);
+    const have = installedVersions(profile);
+    const behind = [];
+    for (const id of profile.bundles) {
+      if (isBuiltin(id)) continue;
+      const hit = idx.get(id);
+      const mine = have.get(id);
+      if (hit?.latest?.version && mine && compareVersions(mine, hit.latest.version) < 0) behind.push(`${id}  ${mine} → ${hit.latest.version}`);
+    }
+    if (behind.length) {
+      issues += behind.length;
+      console.log(`\n有新版本（目录缓存于 ${new Date(cached.fetchedAt).toLocaleDateString("zh-CN")}）：\n${behind.map((b) => `  ↑ ${b}`).join("\n")}`);
+    }
+  } else {
+    console.log("\n（还没有目录缓存：跑一次 dsh-restock catalog 之后，这里会报哪些插件有新版本）");
+  }
   console.log(issues ? `\n发现 ${issues} 个问题。` : "\n没发现已知冲突。");
+}
+
+async function cmdCatalog(flags) {
+  const { catalog, fromCache, stale, error } = await fetchCatalog({ root: ROOT, force: Boolean(flags.refresh) });
+  const idx = indexByName(catalog);
+  const when = catalog.fetchedAt ? new Date(catalog.fetchedAt).toLocaleString("zh-CN", { hour12: false }) : "未知";
+  const title = typeof catalog.title === "object" ? (catalog.title?.zh ?? catalog.title?.en ?? "DSH 插件目录") : (catalog.title ?? "DSH 插件目录");
+  console.log(`\n${title}`);
+  console.log(`条目：${idx.size}　来源：${stale ? `本地缓存（本次拉取失败：${error ?? "未知"}）` : fromCache ? "本地缓存" : "刚拉取"}`);
+  console.log(`缓存时间：${when}\n`);
+
+  const cats = new Map();
+  for (const p of idx.values()) cats.set(p.metadata?.category ?? "other", (cats.get(p.metadata?.category ?? "other") ?? 0) + 1);
+  const top = [...cats.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+  console.log(`分类：${top.map(([c, n]) => `${c} ${n}`).join(" · ")}\n`);
+
+  const q = flags.search ?? flags.q;
+  if (q) {
+    const needle = String(q).toLowerCase();
+    const hits = [...idx.values()]
+      .filter((p) => p.name.toLowerCase().includes(needle) || (p.description?.zh ?? "").includes(q) || (p.description?.en ?? "").toLowerCase().includes(needle))
+      .slice(0, 20);
+    console.log(`搜索「${q}」命中 ${hits.length} 条：`);
+    for (const h of hits) console.log(`  ${h.name.padEnd(40)} ${(h.latest?.version ?? "?").padEnd(12)} [${h.metadata?.category ?? "-"}] ${(h.description?.zh ?? h.description?.en ?? "").slice(0, 60)}`);
+    return;
+  }
+
+  const profile = readProfile();
+  const have = installedVersions(profile);
+  const rows = [];
+  for (const id of profile.bundles) {
+    if (isBuiltin(id)) continue;
+    const raw = profile.dependencies?.[id] ?? "";
+    const local = /^(file:|link:|workspace:|\.{0,2}[\\/])/.test(String(raw));
+    const hit = idx.get(id);
+    const mine = have.get(id) ?? null;
+    const latest = hit?.latest?.version ?? null;
+    const state = local ? "本地路径包" : !hit ? "目录未收录" : !mine ? "版本未知" : compareVersions(mine, latest) < 0 ? `可更新 →${latest}` : "已最新";
+    rows.push({ id, mine, latest, state });
+  }
+  const behind = rows.filter((r) => r.state.startsWith("可更新"));
+  const unknownCnt = rows.filter((r) => r.state === "目录未收录").length;
+  const localCnt = rows.filter((r) => r.state === "本地路径包").length;
+  console.log(`你的 ${rows.length} 个第三方插件：已最新 ${rows.filter((r) => r.state === "已最新").length}　可更新 ${behind.length}　目录未收录 ${unknownCnt}　本地包 ${localCnt}\n`);
+  for (const r of rows) {
+    const mark = r.state.startsWith("可更新") ? "↑" : r.state === "目录未收录" ? "?" : r.state === "本地路径包" ? "⌂" : " ";
+    console.log(`  ${mark} ${r.id.padEnd(40)} ${(r.mine ?? "-").padEnd(14)} ${r.state}`);
+  }
+  if (behind.length) console.log("\n（restock 只负责报告差距；升级走 DSH 插件页或 dsh-restock install <插件名>，装完重启 DSH 生效。）");
 }
 
 async function cmdProbe(flags) {
@@ -400,13 +488,16 @@ function help() {
   console.log(`DSH Restock - 给 DeepSeek Harness 补插件
 
 用法：
-  dsh-restock list [--pack <id>]                 看目录 / 看某个套餐
+  dsh-restock list [--pack <id>]                 看精选目录 / 看某个套餐
   dsh-restock install <id...> [--pack <id>]      安装（--dry-run 只预览，--port 指定端口）
   dsh-restock export [--out my-dsh.json]         导出当前 profile 的插件清单
   dsh-restock sync <file.json> [--dry-run]       按清单补齐缺失插件
-  dsh-restock doctor                             体检：已知冲突、未知插件
+  dsh-restock catalog [--refresh] [--search 词]  生态目录（6k+ 条）＋ 你的版本差距
+  dsh-restock doctor                             体检：冲突、未知插件、可更新版本
 
 示例：
+  dsh-restock catalog
+  dsh-restock catalog --search 生图
   dsh-restock list --pack newbie
   dsh-restock install --pack creator
   dsh-restock export --out my-dsh.json
@@ -426,6 +517,7 @@ try {
     case "export": cmdExport(flags); break;
     case "sync": await cmdSync(flags); break;
     case "doctor": cmdDoctor(flags); break;
+    case "catalog": await cmdCatalog(flags); break;
     case "probe": await cmdProbe(flags); break;
     case "help": case "--help": case "-h": help(); break;
     default:

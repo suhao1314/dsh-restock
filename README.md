@@ -107,23 +107,53 @@ npx dsh-restock doctor
 
 ## 和另外几个项目的区别
 
-| 项目 | 定位 | Restock 的差异 |
+生态里已经有一批项目覆盖了「发现 / 市场 / 体检 / 卸载」这几层，Restock 不重复造它们，而是**消费**这些数据：
+
+| 项目 | 定位 | Restock 怎么用它 / 差异 |
 | --- | --- | --- |
-| `dsh-flightdeck` | Electron 启动器，打包固定 DSH 运行时 + 一批插件 | 我们**不重打包 DSH**，只描述和安装；装进你现有的 profile，跟着官方版本走 |
-| `dshmarket` | 应用内插件市场（浏览、安装图形界面） | 我们是**可版本管理的清单**：能 commit、能 review、能 `sync` 到新机器 |
-| `npx skills` 类技能管理器 | 只管技能 | 我们**插件 + 技能 + MCP 一起管**，并标注互相冲突 |
+| [`awesome-dsh-plugin/awesome-dsh-plugin`](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)（★2.5w，`dsh-plugin-catalog`，6700+ 条，每日更新） | 生态目录（DSH 自带插件市场的索引源） | **直接读它的 `index.json`**（`dsh-restock catalog`），不自己维护几千条元数据；Restock 只额外维护「套餐 + 冲突踩坑库」 |
+| [`AdamPlatin123/dsh-plugin-radar`](https://github.com/AdamPlatin123/dsh-plugin-radar)（★1.5k） | 生态雷达：持续发现新插件 | 我们管「装到你机器上之后」的事：快照、补货、冲突 |
+| [`LivXue/dsh-plugin-shop`](https://github.com/LivXue/dsh-plugin-shop) / [`dshplugin/dsh-plugin-hub`](https://github.com/dshplugin/dsh-plugin-hub) | 插件市场 / 商城 | 它们是商店；我们是「你的购物记录 + 常买组合 + 到货提醒」 |
+| [`lili-luo/dsh-plugin-bundle`](https://github.com/lili-luo/dsh-plugin-bundle)（★351） | 插件组合包（`path:` 子目录安装） | 它是「打包成一个仓库」；我们是「装进任意机器、可 `export`/`sync` 的个人快照 + 套餐」 |
+| [`wbb316/dsh-profile-sync`](https://github.com/wbb316/dsh-profile-sync) / [`2NF/dsh-profile-bridge`](https://github.com/2NF/dsh-profile-bridge) | profile 之间的插件迁移 / 让桌面版复用已有 profile | 它们做跨 profile 搬运；我们做「当前 profile 的快照、体检、补货」，并有冲突库 |
+| [`zoahdev/dsh-unplug`](https://github.com/zoahdev/dsh-unplug) / [`zoahdev/dsh-quality-score`](https://github.com/zoahdev/dsh-quality-score) / [`zuoyunlai/dsh-healthkit`](https://github.com/zuoyunlai/dsh-healthkit) | 干净卸载 / 质量评分 / 安装体检 | 互补：`doctor` 报冲突和版本差距，体检评分交给 healthkit |
+| [`Zeno2019/dsh-flightdeck`](https://github.com/Zeno2019/dsh-flightdeck) | Electron 启动器：固定 DSH 运行时 + 精选插件 | 我们**不重打包 DSH**，装进你现有 profile，跟着官方版本走 |
+| `dshmarket` | 应用内插件市场图形界面 | 我们是**可 commit、可 review、可 `sync` 的清单与命令** |
+
+一句话分工：**目录数据 → awesome-dsh-plugin；商店界面 → dshmarket；卸载/评分 → unplug/quality-score；补货与快照 → Restock。**
+
+## 这类东西该叫什么（术语）
+
+- 数据层：**catalog / registry index**（插件目录、生态索引）
+- 组合层：**pack / bundle / metapackage**（套餐、组合包、元包）
+- 状态层：**manifest / lockfile / profile snapshot**（清单、锁文件、profile 快照）
+- 操作层：**provisioning / bootstrap / restore**（环境重建、一键还原）
+
+对应到别的生态：VS Code 的 **Profiles**、Homebrew 的 **Brewfile + `brew bundle`**、Windows 的 **`winget export/import`**、Nix 的 **home-manager**、dotfiles 界的 **chezmoi**。Restock 就是 DSH 版的「Brewfile + `brew bundle` + `brew doctor`」。
+
+## 数据从哪来
+
+- 精选/套餐/冲突：本仓库 `catalog/plugins.json`（人工维护，目前 19 条，每条都写清「有什么用、适合谁、要不要花钱、会不会打架」）
+- 全量生态目录：`dsh-plugin-catalog`（6700+ 条，每日更新，走 jsDelivr/unpkg 拉取，缓存 12 小时）
+
+```bash
+npx dsh-restock catalog                 # 全量目录概览 + 你的插件版本差距
+npx dsh-restock catalog --refresh       # 强制刷新缓存
+npx dsh-restock catalog --search 生图    # 按名字/中英文描述搜索
+```
 
 ## 安全与边界
 
-- 不代跑 npm 安装脚本以外的任何东西；不收集遥测；不联网拉用户数据。
+- 不代跑 npm 安装脚本以外的任何东西；不收集遥测；不往任何服务器上传你的 profile。
 - 安装前会把「要装什么、从哪个包名装」打印出来，`--dry-run` 可先看。
 - 目录里的 `cost` / `conflicts` 是人工维护的判断，会过时 —— 发现问题请提 PR 改 JSON。
 
 ## 路线图
 
 - [x] 目录 + 套餐 + `list` / `install` / `export` / `sync` / `doctor`
+- [x] 接入上游生态目录（`catalog`，6700+ 条、版本差距对比）
 - [ ] 技能（skills）与 MCP 连接的清单化安装
-- [ ] 从 GitHub / npm 自动核对新版本与发布时间
+- [ ] `export` 生成带版本的 lockfile（现在只记包名）
 - [ ] 网页版勾选界面（生成一条命令给你复制）
 - [ ] 社区提交目录（一个 PR 一个插件）
 
