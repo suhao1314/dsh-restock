@@ -524,9 +524,10 @@ const CATEGORY_ZH = {
   context: "上下文",
 };
 
-function cmdRecommend(flags) {
+async function cmdRecommend(flags) {
   const curated = loadCatalog();
   const profile = readProfile();
+  if (!profile.found) console.log(`⚠️ 没找到 DSH profile：${PROFILE}\n   （这台机器还没装 DSH，或 profile 在别处 —— 用 DSH_PROFILE_DIR=... 指定；下面只看目录，不看你已装什么）`);
   const installed = installedSet(profile);
   const isInstalled = (e) => installed.has(e.id) || installed.has(e.npm);
   const zh = (c) => CATEGORY_ZH[c] || c;
@@ -588,7 +589,18 @@ function cmdRecommend(flags) {
 
   // 精选目录不够用时，从上游全量目录自动筛：说明写得清、仓库不重复、版本能跑。
   if (cands.length < limit) {
-    const cache = readCache(ROOT);
+    let cache = readCache(ROOT);
+    if (!cache && !flags.offline) {
+      console.log("\n（本地没有生态目录缓存，联网拉一次……）");
+      try {
+        const got = await fetchCatalog({ root: ROOT });
+        cache = got.catalog;
+        if (got.stale) console.log("（拉取失败，用了旧缓存）");
+      } catch (err) {
+        console.log(`（拉取失败：${err.message}；可先跑 dsh-restock catalog）`);
+      }
+    }
+    if (!cache && flags.offline) console.log("\n（--offline：跳过上游目录，只给精选层建议）");
     const upstream = cache?.plugins;
     if (Array.isArray(upstream)) {
       const ver = hostDshVersion();
@@ -653,7 +665,7 @@ function help() {
   dsh-restock export [--out my-dsh.json]         导出当前 profile 的插件清单
   dsh-restock sync <file.json> [--dry-run]       按清单补齐缺失插件
   dsh-restock catalog [--refresh] [--search 词]  生态目录（6k+ 条）＋ 你的版本差距
-  dsh-restock recommend                          按你的 profile 推荐该补什么（能力缺口 + 冲突过滤）
+  dsh-restock recommend [--offline] [--limit N]  按你的 profile 推荐该补什么（能力缺口 + 冲突过滤）
   dsh-restock doctor                             体检：冲突、未知插件、可更新版本
 
 示例：
@@ -677,7 +689,7 @@ try {
     case "install": await cmdInstall(flags); break;
     case "export": cmdExport(flags); break;
     case "sync": await cmdSync(flags); break;
-    case "recommend": cmdRecommend(flags); break;
+    case "recommend": await cmdRecommend(flags); break;
     case "doctor": cmdDoctor(flags); break;
     case "catalog": await cmdCatalog(flags); break;
     case "probe": await cmdProbe(flags); break;
