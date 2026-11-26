@@ -49,6 +49,13 @@ cd dsh-restock
 # 0. 让它先给你建议（能力缺口 + 冲突过滤 + 质量筛）
 node bin/cli.mjs recommend
 
+# 0b. 最近火什么（GitHub `topic:dsh-plugin` 按 stars 排，标出能不能直接 npm 装）
+node bin/cli.mjs hot --npm --limit 15
+
+# 0c. 技能：仓库自带一个「补货助手」，另外给技能发现器的来源
+node bin/cli.mjs skills
+node bin/cli.mjs skill-install restock --to "~/.workbuddy/skills"
+
 # 1. 看货架（读本地 catalog，不联网）
 node bin/cli.mjs list
 
@@ -165,6 +172,56 @@ npx dsh-restock catalog --refresh       # 强制刷新缓存
 npx dsh-restock catalog --search 生图    # 按名字/中英文描述搜索
 ```
 
+## 最近火什么（热门榜 `hot`）
+
+上游目录有 6,700+ 条，但「谁在用」是另一回事。`catalog/hot.json` 是 GitHub 上 `topic:dsh-plugin` 按 **真实 stars** 排出来的榜单：
+
+```bash
+node bin/cli.mjs hot                    # 默认前 20
+node bin/cli.mjs hot --npm              # 只看能直接 npm 装的
+node bin/cli.mjs hot --search 记忆       # 按名字/描述/标签搜
+node bin/cli.mjs hot --npm --limit 50
+```
+
+每条都标了安装方式：
+
+- **可装**（`installed_via: npm`）：生态目录里有同名包，`node bin/cli.mjs install <name>` 就行；
+- **手动**（`manual`）：不是 npm 包（可能是套壳/清单仓库/工具），得去仓库按 README 装，别硬塞。
+
+榜单不替你判断好坏：stars 高的也可能是通用工具（比如整个 harness 自己的仓库就会排在前面）。装上之前用 `doctor` 看有没有冲突，用 `recommend` 看你这台机器到底缺不缺。
+
+## 顺手装个技能：技能发现
+
+插件解决「工具不够」，技能解决「agent 不会干」。仓库自带一个技能：
+
+```bash
+node bin/cli.mjs skills                                   # 看清单
+node bin/cli.mjs skill-install restock --to "~/.workbuddy/skills"
+```
+
+装完新开会话，agent 就会自己去跑 `recommend` / `hot` / `doctor`，而不是凭记忆编插件名。
+
+`catalog/skills.json` 里还列了几个值得装的技能（`find-skills` 技能发现、`skill-scanner` 安装前安全扫描、`openviking-skills` 跨机器同步、`darwin-skill` 优化技能、`handoff` 交接文档）。**这些不是仓库自带的**——只给来源和装法，不复制别人的正文，授权跟各自来源走。其中 `find-skills` 是六层联合搜索（官方内置 / 本地已装 / SkillHub / 虾评 / GitHub / ClawHub）的技能发现器，在 SkillHub 里搜名字装即可。
+
+## 数据怎么保持新鲜
+
+| 数据 | 来源 | 更新方式 |
+| --- | --- | --- |
+| `catalog/plugins.json` | 人工精选（19 条，带成本/冲突/踩坑） | 改文件 + PR |
+| `catalog/hot.json` | GitHub `topic:dsh-plugin` 搜索，top 300 by stars | 重新生成后提交（下面有命令） |
+| 生态目录缓存 `cache/catalog.json` | `dsh-plugin-catalog`（npm/CDN，6,700+ 条） | `node bin/cli.mjs catalog --refresh`，12 小时 TTL |
+| 你的 profile 状态 | `~/.dsh/profiles/desktop/package.json` | 实时读 |
+
+重新生成热门榜（需要 `gh` 已登录）：
+
+```bash
+gh api "search/repositories?q=topic:dsh-plugin&sort=stars&order=desc&per_page=100&page=1" > /tmp/h1.json
+# page=2、3 同理，然后合并去重、按 stars 排序，与目录里的 npm 包名对齐，
+# 输出 catalog/hot.json（字段见该文件顶部 schema）
+```
+
+`install` 会先查状态：已经装了但被关掉的，走 `setBundleEnabled` 直接启用，不会重复拉包——这就是「补货」和「重装」的区别。
+
 ## 安全与边界
 
 - 不代跑 npm 安装脚本以外的任何东西；不收集遥测；不往任何服务器上传你的 profile。
@@ -176,6 +233,7 @@ npx dsh-restock catalog --search 生图    # 按名字/中英文描述搜索
 - [x] 目录 + 套餐 + `list` / `install` / `export` / `sync` / `doctor`
 - [x] 接入上游生态目录（`catalog`，6700+ 条、版本差距对比）
 - [x] `recommend`：按 profile 的能力缺口推荐，精选层 + 上游自动筛层
+- [x] 热门榜 `hot`（GitHub stars，标注可装/手动）+ 仓库自带补货技能 + `skills` / `skill-install`
 - [ ] 技能（skills）与 MCP 连接的清单化安装
 - [ ] `export` 生成带版本的 lockfile（现在只记包名）
 - [ ] 网页版勾选界面（生成一条命令给你复制）

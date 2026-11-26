@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "updated": "2026-11-26",
+  "note": "技能清单：bundled 是仓库自带的（skill-install 可复制到你的技能目录）；其他标了来源，跟着来源装，不复制别人正文以避开授权问题。",
+  "skills": [
+    {
+      "id": "restock",
+      "name": "Restock 补货助手（自带）",
+      "bundled": true,
+      "dir": "skills/restock",
+      "what": "让 agent 直接用 dsh-restock 的 recommend / hot / catalog / doctor 判断你这台机器还缺什么插件，并给出可点的安装命令。",
+      "goodFor": "刚装好 DSH、不知道装什么；或换机后想一次补回。",
+      "license": "MIT"
+    },
+    {
+      "id": "find-skills",
+      "name": "技能发现·Find Skills",
+      "bundled": false,
+      "source": "skillhub",
+      "what": "用自然语言描述场景（如「我想做海报」「找个数仓技能」），自动在官方内置、本地已装、SkillHub、虾评、GitHub、ClawHub 六层里找技能并推荐，支持一键安装。",
+      "goodFor": "不知道装什么技能、或想换个领域试试。",
+      "install": "在 SkillHub / 技能市场里搜「find-skills」安装；它是市场包，正文授权跟随来源。"
+    },
+    {
+      "id": "skill-scanner",
+      "name": "Skill 安全扫描",
+      "bundled": false,
+      "source": "skillhub",
+      "what": "安装前静态扫描技能文件，查提示词注入、可疑网络请求、凭据外传等风险，纯本地离线分析。",
+      "goodFor": "要装来路不明的技能之前过一遍。",
+      "install": "在 SkillHub 里搜「skill-scanner」。"
+    },
+    {
+      "id": "openviking-skills",
+      "name": "OpenViking 技能库",
+      "bundled": false,
+      "source": "openviking",
+      "what": "跨宿主查找、安装、分享、更新 agent 技能（viking://~/skills 与 viking://agent/skills），可迁移到别的机器。",
+      "goodFor": "多台机器 / 多个 agent 想共用一套技能。",
+      "install": "装了 @openviking/dsh-memory-plugin 后自动可用。"
+    },
+    {
+      "id": "darwin-skill",
+      "name": "达尔文·技能优化",
+      "bundled": false,
+      "source": "skillhub",
+      "what": "用 8 维评分 + 爬山迭代自动改进 SKILL.md，给出评分卡。",
+      "goodFor": "自己写的技能不好用，想让它更准。",
+      "install": "在 SkillHub 里搜「darwin-skill」。"
+    },
+    {
+      "id": "dsh-doc",
+      "name": "DSH 官方文档",
+      "bundled": false,
+      "source": "official",
+      "what": "回答 DSH 自身的问题：功能、配置、插件/bundle、cordis API、工具定义、升级窗口。",
+      "goodFor": "要写或调 DSH 插件、看不懂设置项。",
+      "install": "内置技能，装了 dsh 就有。"
+    },
+    {
+      "id": "handoff",
+      "name": "交接文档",
+      "bundled": false,
+      "source": "skillhub",
+      "what": "把当前进度、发现、剩余工作写成 HANDOFF.md，让下一个 agent 无缝接手。",
+      "goodFor": "长任务要换会话、上下文快满了。",
+      "install": "在 SkillHub 里搜「handoff」。"
+    }
+  ]
+}

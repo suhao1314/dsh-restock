@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // DSH Restock - catalogue + one-shot installer for DeepSeek Harness plugins.
 // Zero dependencies. Talks to the running DSH desktop host over its local web RPC.
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, cpSync } from "node:fs";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
@@ -667,6 +667,84 @@ async function cmdProbe(flags) {
   console.log(r.text.slice(0, 800));
 }
 
+function readLocalJson(file) {
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function fmtStars(n) {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+function cmdHot(flags) {
+  const db = readLocalJson(join(ROOT, "catalog", "hot.json"));
+  if (!db) return console.log("没有 catalog/hot.json（仓库里应该带着它）。");
+  let rows = db.plugins ?? [];
+  if (flags.npm) rows = rows.filter((r) => r.installed_via === "npm");
+  const q = flags.search ?? flags.q;
+  if (q) {
+    const needle = String(q).toLowerCase();
+    rows = rows.filter((r) => `${r.name} ${r.repo} ${r.desc ?? ""}`.toLowerCase().includes(needle) || (r.topics ?? []).some((t) => t.includes(needle)));
+  }
+  const limit = Number(flags.limit ?? 20);
+  console.log(`\n热门榜：GitHub topic:dsh-plugin 按 stars 排（数据 ${db.generated ?? "未知"}，${db.count ?? rows.length} 个仓库，其中 ${db.npm_count ?? "?"} 个能直接 npm 装）`);
+  console.log("说明：可装 = 生态目录里有同名包，能 `install`；手动 = 不是 npm 包，得去仓库按 README 装。\n");
+  for (const r of rows.slice(0, limit)) {
+    const mark = r.installed_via === "npm" ? "可装" : "手动";
+    const ver = r.latest ? ` ${r.latest}` : "";
+    console.log(`  ${fmtStars(r.stars).padStart(6)}★  ${mark}  ${String(r.name).slice(0, 46).padEnd(48)} ${(r.desc ?? "").slice(0, 54)}${ver ? `  (${r.latest})` : ""}`);
+  }
+  if (!rows.length) console.log("  没有符合条件的条目。");
+  console.log(`\n共 ${rows.length} 条，显示前 ${Math.min(limit, rows.length)} 条。装 npm 的：node bin/cli.mjs install <name>`);
+}
+
+function cmdSkills(flags) {
+  const db = readLocalJson(join(ROOT, "catalog", "skills.json"));
+  if (!db) return console.log("没有 catalog/skills.json。");
+  let rows = db.skills ?? [];
+  const q = flags.search ?? flags.q;
+  if (q) {
+    const needle = String(q).toLowerCase();
+    rows = rows.filter((s) => `${s.id} ${s.name} ${s.what} ${s.goodFor ?? ""}`.toLowerCase().includes(needle));
+  }
+  console.log(`\n技能清单（${db.updated ?? "未知"}）：`);
+  for (const s of rows) {
+    const tag = s.bundled ? "自带" : s.source;
+    console.log(`\n  ${s.name}　[${tag}]　id=${s.id}`);
+    console.log(`     ${s.what}`);
+    if (s.goodFor) console.log(`     适合：${s.goodFor}`);
+    if (s.bundled) console.log(`     装法：node bin/cli.mjs skill-install ${s.id} --to <你的技能目录>`);
+    else console.log(`     来源：${s.install ?? s.source}`);
+  }
+  console.log("\n技能目录因宿主而异：agent 宿主常见 `~/.workbuddy/skills`、`~/.codebuddy/skills`、`~/.openclaw/workspace/skills`；不确定就看你正在用的那个宿主里已有的技能放在哪。");
+}
+
+function cmdSkillInstall(flags) {
+  const db = readLocalJson(join(ROOT, "catalog", "skills.json"));
+  const id = flags._[0];
+  if (!id) return console.log("用法：dsh-restock skill-install <id> --to <技能目录>\n（自带技能：restock）");
+  const skill = (db?.skills ?? []).find((s) => s.id === id);
+  if (!skill) return console.log(`清单里没有 ${id}。用 \`node bin/cli.mjs skills\` 看有哪些。`);
+  if (!skill.bundled) {
+    console.log(`${skill.name} 不是仓库自带的技能，无法直接复制。\n${skill.install ?? `来源：${skill.source}`}`);
+    return;
+  }
+  const target = flags.to;
+  if (!target || target === true) {
+    return console.log(`复制 ${id} 需要指定目标目录：dsh-restock skill-install ${id} --to <你的技能目录>`);
+  }
+  const src = join(ROOT, skill.dir ?? `skills/${id}`);
+  if (!existsSync(src)) return console.log(`仓库里没有 ${src}`);
+  const dest = join(String(target), id);
+  mkdirSync(dest, { recursive: true });
+  cpSync(src, dest, { recursive: true });
+  console.log(`已复制 ${id} → ${dest}\n重启/新开会话后生效。`);
+}
+
 function help() {
   console.log(`DSH Restock - 给 DeepSeek Harness 补插件
 
@@ -676,7 +754,10 @@ function help() {
   dsh-restock export [--out my-dsh.json]         导出当前 profile 的插件清单
   dsh-restock sync <file.json> [--dry-run]       按清单补齐缺失插件
   dsh-restock catalog [--refresh] [--offline] [--search 词]  生态目录（6k+ 条）＋ 你的版本差距
+  dsh-restock hot [--npm] [--search 词] [--limit N]  热门榜（GitHub stars，标注能不能直接装）
   dsh-restock recommend [--offline] [--limit N]  按你的 profile 推荐该补什么（能力缺口 + 冲突过滤）
+  dsh-restock skills [--search 词]               技能清单（自带 + 推荐的发现技能）
+  dsh-restock skill-install <id> --to <技能目录>  装仓库自带技能
   dsh-restock doctor                             体检：冲突、未知插件、可更新版本
 
 示例：
@@ -703,6 +784,9 @@ try {
     case "recommend": await cmdRecommend(flags); break;
     case "doctor": cmdDoctor(flags); break;
     case "catalog": await cmdCatalog(flags); break;
+    case "hot": cmdHot(flags); break;
+    case "skills": cmdSkills(flags); break;
+    case "skill-install": case "skillInstall": cmdSkillInstall(flags); break;
     case "probe": await cmdProbe(flags); break;
     case "help": case "--help": case "-h": help(); break;
     default:
